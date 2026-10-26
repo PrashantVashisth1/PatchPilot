@@ -107,7 +107,7 @@ npm install
 # Typecheck all workspaces (shared, server, client)
 npm run typecheck
 
-# Run server automated test suite (88 tests across 22 suites)
+# Run server automated test suite (89 tests across 22 suites)
 npm run test -w packages/server
 
 # Build all packages for production
@@ -247,7 +247,7 @@ The test suite validates:
 
 ```bash
 npm run test -w packages/server
-# 88 tests passing across 22 suites (100% clean)
+# 89 tests passing across 22 suites (100% clean)
 ```
 
 ---
