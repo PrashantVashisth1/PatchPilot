@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+coverage/
+test-analyzer.js
+test-debug.js
+test-debug2.js
+test-file.js
+test-git.js
+test-git2.js
+test-git3.js
+test-parse.js
+test-read.js
+test-readfile.js
