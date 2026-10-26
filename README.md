@@ -98,7 +98,7 @@ patchpilot/
 
 ```bash
 # Clone the repository
-git clone https://github.com/PrashantVashisth/PatchPilot.git
+git clone https://github.com/PrashantVashisth1/PatchPilot.git
 cd PatchPilot
 
 # Install monorepo dependencies
