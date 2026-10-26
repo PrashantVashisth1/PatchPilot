@@ -1,5 +1,11 @@
 import { useState, type FC } from "react";
 import type { DepEdge, ImpactEdge, FileAnalysis } from "@patchpilot/shared";
+import {
+  IconSearch,
+  IconArrowRight,
+  IconCornerDownRight,
+  IconBox,
+} from "./icons";
 
 interface DependencyGraphViewProps {
   files: FileAnalysis[];
@@ -23,7 +29,6 @@ export const DependencyGraphView: FC<DependencyGraphViewProps> = ({
     return edge.source.toLowerCase().includes(q) || edge.target.toLowerCase().includes(q);
   });
 
-  // Group edges by primary file for clean tree structure
   const groupedEdges = new Map<string, string[]>();
   for (const edge of filteredEdges) {
     const key = viewMode === "forward" ? edge.source : edge.target;
@@ -34,97 +39,98 @@ export const DependencyGraphView: FC<DependencyGraphViewProps> = ({
   }
 
   return (
-    <div id="dependency-graph-section" className="tree-container">
-      {/* View Switcher & Search Bar */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
+    <div id="dependency-graph-section">
+      {/* Switcher & Search Bar */}
+      <div className="filter-toolbar">
+        <div className="filter-btn-group">
           <button
             type="button"
-            className={`btn-secondary ${viewMode === "forward" ? "active" : ""}`}
-            style={{
-              borderColor: viewMode === "forward" ? "var(--accent)" : "var(--border-subtle)",
-              color: viewMode === "forward" ? "var(--accent-light)" : "var(--text-secondary)",
-            }}
+            className={`filter-btn ${viewMode === "forward" ? "active" : ""}`}
             onClick={() => setViewMode("forward")}
           >
             <span>&rarr; Outgoing Dependencies</span>
-            <span className="badge-pill">{dependencyGraph.length}</span>
+            <span style={{ opacity: 0.6, fontFamily: "var(--font-mono)" }}>{dependencyGraph.length}</span>
           </button>
           <button
             type="button"
-            className={`btn-secondary ${viewMode === "reverse" ? "active" : ""}`}
-            style={{
-              borderColor: viewMode === "reverse" ? "var(--accent)" : "var(--border-subtle)",
-              color: viewMode === "reverse" ? "var(--accent-light)" : "var(--text-secondary)",
-            }}
+            className={`filter-btn ${viewMode === "reverse" ? "active" : ""}`}
             onClick={() => setViewMode("reverse")}
           >
-            <span>&larr; Incoming Consumers (Impact)</span>
-            <span className="badge-pill">{impact.length}</span>
+            <span>&larr; Incoming Consumers</span>
+            <span style={{ opacity: 0.6, fontFamily: "var(--font-mono)" }}>{impact.length}</span>
           </button>
         </div>
 
-        <div>
+        <div className="field-input-wrapper" style={{ width: "240px" }}>
+          <span className="field-input-icon">
+            <IconSearch size={13} />
+          </span>
           <input
             type="text"
-            className="form-input"
-            style={{ width: "240px", padding: "0.4rem 0.75rem", fontSize: "0.82rem" }}
-            placeholder="Search files in graph..."
+            className="text-input"
+            style={{ height: "30px", fontSize: "0.78rem" }}
+            placeholder="Search module..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
       </div>
 
-      <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+      <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginBottom: "1rem" }}>
         {viewMode === "forward"
-          ? "Showing resolved relative imports: Changed File → imports → Target Module"
-          : "Showing reverse blast radius: Consumer File → depends on → Changed Target"}
+          ? "Resolved relative imports: Changed File → imports → Target Internal Module"
+          : "Downstream reverse blast radius: Consumer File → imports → Changed Target"}
       </div>
 
       {groupedEdges.size === 0 ? (
-        <div className="table-card">
-          <div className="empty-state">
-            <div className="empty-title">No dependency edges found</div>
-            <div className="empty-desc">
+        <div className="file-table-container">
+          <div style={{ padding: "3rem", textAlign: "center", color: "var(--text-tertiary)" }}>
+            <IconBox size={24} style={{ marginBottom: "0.5rem", opacity: 0.5 }} />
+            <div style={{ fontSize: "0.9rem", color: "var(--text-secondary)", fontWeight: 500 }}>
+              No relationships mapped
+            </div>
+            <div style={{ fontSize: "0.78rem" }}>
               {searchQuery
-                ? `No edges matched the search term "${searchQuery}".`
-                : viewMode === "forward"
-                ? "Changed files have no local relative dependencies within the repository tree."
-                : "No consumers import the changed modules."}
+                ? `No dependency edges match "${searchQuery}".`
+                : "No relative internal dependency edges recorded."}
             </div>
           </div>
         </div>
       ) : (
-        [...groupedEdges.entries()].map(([primaryFile, relatedList]) => (
-          <div key={primaryFile} className="tree-node-card">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <span style={{ fontSize: "1rem" }}>{viewMode === "forward" ? "📤" : "📥"}</span>
-                <strong className="file-path">{primaryFile}</strong>
-              </div>
-              <span className="badge-pill">
-                {relatedList.length} {viewMode === "forward" ? "Import(s)" : "Consumer(s)"}
-              </span>
-            </div>
-
-            <div className="tree-leaf-list">
-              {relatedList.map((rel) => (
-                <div key={rel} className="tree-leaf-item">
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                    <span style={{ color: viewMode === "forward" ? "var(--accent)" : "var(--accent-light)" }}>
-                      {viewMode === "forward" ? "&rarr;" : "&larr;"}
-                    </span>
-                    <span style={{ color: "var(--text-primary)" }}>{rel}</span>
-                  </div>
-                  <span className="depth-badge">
-                    {viewMode === "forward" ? "Direct Import" : "Downstream Dep"}
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          {[...groupedEdges.entries()].map(([primaryFile, relatedList]) => (
+            <div key={primaryFile} className="impact-chain-card" style={{ marginBottom: 0 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <IconBox size={14} style={{ color: "var(--accent-light)" }} />
+                  <span className="formatted-path">
+                    <strong>{primaryFile}</strong>
                   </span>
                 </div>
-              ))}
+                <span className="tab-pill">
+                  {relatedList.length} {viewMode === "forward" ? "import(s)" : "consumer(s)"}
+                </span>
+              </div>
+
+              <div className="tree-branch">
+                {relatedList.map((rel) => (
+                  <div key={rel} className="tree-leaf-row">
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                      <IconCornerDownRight
+                        size={13}
+                        style={{ color: viewMode === "forward" ? "var(--accent)" : "var(--accent-light)" }}
+                      />
+                      <span style={{ color: "var(--text-primary)" }}>{rel}</span>
+                    </div>
+                    <span className="depth-pill">
+                      {viewMode === "forward" ? "Imports" : "Depends on"}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        ))
+          ))}
+        </div>
       )}
     </div>
   );

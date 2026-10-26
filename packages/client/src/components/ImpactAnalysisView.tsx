@@ -1,5 +1,12 @@
 import { useState, type FC } from "react";
 import type { ImpactEdge, ImpactDetail } from "@patchpilot/shared";
+import {
+  IconCornerDownRight,
+  IconAlertTriangle,
+  IconRoute,
+  IconArrowRight,
+  IconFileCode,
+} from "./icons";
 
 interface ImpactAnalysisViewProps {
   impact: ImpactEdge[];
@@ -17,7 +24,7 @@ export const ImpactAnalysisView: FC<ImpactAnalysisViewProps> = ({
   const [selectedTarget, setSelectedTarget] = useState<string>("all");
 
   const filesWithImpact = impactDetails.filter(
-    (d) => d.directConsumers.length > 0 || d.transitiveConsumers.length > 0,
+    (d) => d.directConsumers.length > 0 || d.transitiveConsumers.length > 0
   );
 
   const displayedDetails =
@@ -26,93 +33,83 @@ export const ImpactAnalysisView: FC<ImpactAnalysisViewProps> = ({
       : impactDetails.filter((d) => d.file === selectedTarget);
 
   return (
-    <div id="impact-analysis-section" className="tree-container">
-      {/* Scan Completeness Warning */}
+    <div id="impact-analysis-section">
+      {/* Scan Truncation Alert */}
       {!scanComplete && (
-        <div className="alert-warning" id="impact-scan-alert">
-          <span style={{ fontSize: "1.2rem" }}>⚠️</span>
+        <div className="alert-banner alert-banner-warning" id="impact-scan-alert">
+          <IconAlertTriangle size={16} />
           <div>
-            <strong>Partial Impact Scan:</strong> {scanNote ?? "Repository limit reached. Transitive dependencies may be incomplete."}
+            <strong>Partial Impact Scan:</strong> {scanNote ?? "Repository limit reached during traversal. Some transitive paths may be omitted."}
           </div>
         </div>
       )}
 
-      {/* Target File Filter Bar */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
+      {/* Target Selector Bar */}
+      <div className="filter-toolbar">
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-          <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)", fontWeight: 600 }}>
-            Filter by target:
+          <span style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", fontWeight: 500 }}>
+            Scope by changed file:
           </span>
           <button
             type="button"
-            className={`btn-secondary ${selectedTarget === "all" ? "active" : ""}`}
-            style={{
-              padding: "0.3rem 0.65rem",
-              fontSize: "0.8rem",
-              borderColor: selectedTarget === "all" ? "var(--accent)" : "var(--border-subtle)",
-              color: selectedTarget === "all" ? "var(--accent-light)" : "var(--text-secondary)",
-            }}
+            className={`filter-btn ${selectedTarget === "all" ? "active" : ""}`}
             onClick={() => setSelectedTarget("all")}
           >
-            All Changed Files ({impactDetails.length})
+            All Files ({impactDetails.length})
           </button>
           {filesWithImpact.map((d) => (
             <button
               key={d.file}
               type="button"
-              className={`btn-secondary ${selectedTarget === d.file ? "active" : ""}`}
-              style={{
-                padding: "0.3rem 0.65rem",
-                fontSize: "0.8rem",
-                fontFamily: "var(--font-mono)",
-                borderColor: selectedTarget === d.file ? "var(--accent)" : "var(--border-subtle)",
-                color: selectedTarget === d.file ? "var(--accent-light)" : "var(--text-secondary)",
-              }}
+              className={`filter-btn ${selectedTarget === d.file ? "active" : ""}`}
               onClick={() => setSelectedTarget(d.file)}
+              style={{ fontFamily: "var(--font-mono)" }}
             >
               {d.file.split("/").pop()} ({d.directConsumers.length + d.transitiveConsumers.length})
             </button>
           ))}
         </div>
 
-        <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-          Total Impact Edges: <strong>{impact.length}</strong>
+        <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>
+          {impact.length} consumer edge(s) mapped
         </div>
       </div>
 
-      {/* Impact Details per Changed File */}
+      {/* Impact Tree Cards */}
       {displayedDetails.length === 0 ? (
-        <div className="table-card">
-          <div className="empty-state">
-            <div className="empty-title">No impact detected</div>
-            <div className="empty-desc">No internal downstream modules import the changed files.</div>
+        <div className="file-table-container">
+          <div style={{ padding: "3rem", textAlign: "center", color: "var(--text-tertiary)" }}>
+            <IconRoute size={24} style={{ marginBottom: "0.5rem", opacity: 0.5 }} />
+            <div style={{ fontSize: "0.9rem", color: "var(--text-secondary)", fontWeight: 500 }}>No downstream impact</div>
+            <div style={{ fontSize: "0.78rem" }}>No other internal workspace modules import the selected target(s).</div>
           </div>
         </div>
       ) : (
         displayedDetails.map((detail) => {
-          // Find matching impact edges for this target
           const targetEdges = impact.filter((e) => e.target === detail.file);
           const directEdges = targetEdges.filter((e) => e.depth === 1);
           const transitiveEdges = targetEdges.filter((e) => e.depth > 1);
           const hasConsumers = directEdges.length > 0 || transitiveEdges.length > 0;
 
           return (
-            <div key={detail.file} className="tree-node-card">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
+            <div key={detail.file} className="impact-chain-card">
+              <div className="impact-chain-header">
                 <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                  <span style={{ fontSize: "1.1rem" }}>📦</span>
-                  <strong className="file-path">{detail.file}</strong>
+                  <IconFileCode size={16} style={{ color: "var(--accent-light)" }} />
+                  <span className="formatted-path" style={{ fontSize: "0.9rem" }}>
+                    <strong>{detail.file}</strong>
+                  </span>
                 </div>
 
-                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                  <span className="badge-pill">
-                    {detail.directConsumers.length} Direct Consumer(s)
+                <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+                  <span className="tab-pill">
+                    {detail.directConsumers.length} Direct
                   </span>
-                  <span className="badge-pill">
-                    {detail.transitiveCount} Transitive Consumer(s)
+                  <span className="tab-pill">
+                    {detail.transitiveCount} Transitive
                   </span>
                   {detail.truncated && (
-                    <span className="badge badge-medium" title="Consumer search hit max consumers limit">
+                    <span className="badge badge-med" title="Hit maximum consumer limit">
                       Truncated
                     </span>
                   )}
@@ -120,25 +117,25 @@ export const ImpactAnalysisView: FC<ImpactAnalysisViewProps> = ({
               </div>
 
               {!hasConsumers ? (
-                <div style={{ fontSize: "0.82rem", color: "var(--text-muted)", fontStyle: "italic", padding: "0.5rem 0" }}>
-                  No downstream modules import this file. Safe isolated change leaf.
+                <div style={{ fontSize: "0.78rem", color: "var(--text-tertiary)", fontStyle: "italic", padding: "0.5rem 0" }}>
+                  Isolated change leaf — no downstream modules import this file.
                 </div>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginTop: "0.75rem" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
                   {/* Direct Consumers (Depth 1) */}
                   {directEdges.length > 0 && (
                     <div>
-                      <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "0.4rem", textTransform: "uppercase" }}>
+                      <div style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.4rem" }}>
                         Direct Consumers (Depth 1)
                       </div>
-                      <div className="tree-leaf-list">
+                      <div className="tree-branch">
                         {directEdges.map((edge) => (
-                          <div key={edge.consumer} className="tree-leaf-item">
-                            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                              <span style={{ color: "var(--accent)" }}>&larr;</span>
+                          <div key={edge.consumer} className="tree-leaf-row">
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                              <IconCornerDownRight size={13} style={{ color: "var(--accent)" }} />
                               <span style={{ color: "var(--text-primary)" }}>{edge.consumer}</span>
                             </div>
-                            <span className="depth-badge">Direct Import</span>
+                            <span className="depth-pill">Direct Import</span>
                           </div>
                         ))}
                       </div>
@@ -148,26 +145,27 @@ export const ImpactAnalysisView: FC<ImpactAnalysisViewProps> = ({
                   {/* Transitive Consumers (Depth 2+) */}
                   {transitiveEdges.length > 0 && (
                     <div>
-                      <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "0.4rem", textTransform: "uppercase" }}>
-                        Transitive Consumers (Depth 2+)
+                      <div style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.4rem" }}>
+                        Transitive Propagation (Depth 2+)
                       </div>
-                      <div className="tree-leaf-list">
+                      <div className="tree-branch">
                         {transitiveEdges.map((edge) => (
-                          <div key={edge.consumer} className="tree-leaf-item" style={{ flexDirection: "column", alignItems: "flex-start", gap: "0.35rem" }}>
+                          <div key={edge.consumer} className="tree-leaf-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: "0.35rem" }}>
                             <div style={{ display: "flex", justifyContent: "space-between", width: "100%", alignItems: "center" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                                <span style={{ color: "var(--accent-light)" }}>&larr;</span>
+                              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                                <IconCornerDownRight size={13} style={{ color: "var(--accent-light)" }} />
                                 <span style={{ color: "var(--text-primary)" }}>{edge.consumer}</span>
                               </div>
-                              <span className="depth-badge">Depth {edge.depth}</span>
+                              <span className="depth-pill">Depth {edge.depth}</span>
                             </div>
+
                             {edge.path && edge.path.length > 1 && (
-                              <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap" }}>
-                                <span>Chain:</span>
+                              <div style={{ fontSize: "0.72rem", color: "var(--text-tertiary)", display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap", paddingLeft: "1.25rem" }}>
+                                <span style={{ color: "var(--text-secondary)" }}>Propagation chain:</span>
                                 {edge.path.map((step, idx) => (
-                                  <span key={idx}>
-                                    <code>{step.split("/").pop()}</code>
-                                    {idx < edge.path.length - 1 && <span style={{ margin: "0 0.25rem" }}>&rarr;</span>}
+                                  <span key={idx} style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
+                                    <code style={{ color: "var(--text-secondary)" }}>{step.split("/").pop()}</code>
+                                    {idx < edge.path.length - 1 && <IconArrowRight size={10} style={{ color: "var(--text-tertiary)" }} />}
                                   </span>
                                 ))}
                               </div>

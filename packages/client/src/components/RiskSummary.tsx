@@ -1,5 +1,13 @@
 import type { FC } from "react";
 import type { AnalyzeResponse, Finding } from "@patchpilot/shared";
+import {
+  IconShield,
+  IconFileCode,
+  IconRoute,
+  IconCheckCircle,
+  IconAlertTriangle,
+  IconInfo,
+} from "./icons";
 
 interface RiskSummaryProps {
   report: AnalyzeResponse;
@@ -7,9 +15,9 @@ interface RiskSummaryProps {
 
 export const RiskSummary: FC<RiskSummaryProps> = ({ report }) => {
   const { summary, impact, scanComplete, scanNote } = report;
-  const { riskScore, totalFilesChanged, testsRecommended, errorCount } = summary;
+  const { riskScore, totalFilesChanged, testsRecommended } = summary;
 
-  // Split findings into Verified (facts observed deterministically) and Inferred (heuristic risks)
+  // Separate Verified (deterministic AST/diff facts) from Inferred (heuristic downstream/context risks)
   const verifiedFindings: Finding[] = [];
   const inferredFindings: Finding[] = [];
 
@@ -22,164 +30,206 @@ export const RiskSummary: FC<RiskSummaryProps> = ({ report }) => {
     }
   }
 
-  const riskCardClass =
+  const scoreVal = riskScore.value;
+  const activeBand =
     riskScore.label === "high"
-      ? "card-risk-high"
+      ? "active-high"
       : riskScore.label === "medium"
-      ? "card-risk-med"
-      : "card-risk-low";
+      ? "active-med"
+      : "active-low";
 
-  const riskBadgeClass =
+  const badgeClass =
     riskScore.label === "high"
       ? "badge-high"
       : riskScore.label === "medium"
-      ? "badge-medium"
+      ? "badge-med"
       : "badge-low";
 
   return (
     <div id="risk-summary-section" style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
       {/* Scan Truncation Alert */}
       {!scanComplete && (
-        <div className="alert-warning" id="scan-truncated-warning">
-          <span style={{ fontSize: "1.2rem" }}>⚠️</span>
+        <div className="alert-banner alert-banner-warning" id="scan-truncated-warning">
+          <IconAlertTriangle size={16} />
           <div>
-            <strong>Partial Repository Scan:</strong> {scanNote ?? "Repository scan limits reached. Some downstream consumers may not be mapped."}
+            <strong>Partial Analysis Tree:</strong> {scanNote ?? "Repository limit reached during traversal. Some downstream consumers may be unmapped."}
           </div>
         </div>
       )}
 
-      {/* Top Metrics Grid */}
-      <div className="metrics-grid">
-        <div className={`metric-card ${riskCardClass}`}>
-          <div className="metric-label">Regression Risk Score</div>
-          <div className="metric-value-row">
-            <span className="metric-value">{riskScore.value}</span>
-            <span style={{ fontSize: "1.1rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>/100</span>
-            <span className={`badge ${riskBadgeClass}`}>{riskScore.label} Risk</span>
+      {/* Top Engineering Metrics Grid */}
+      <div className="summary-metrics-grid">
+        {/* Risk Score Panel */}
+        <div className="metric-panel">
+          <div>
+            <div className="metric-header">
+              <span>Regression Risk Signal</span>
+              <span className={`badge ${badgeClass}`}>{riskScore.label}</span>
+            </div>
+            <div className="metric-num-wrap">
+              <span className="metric-large-num">{scoreVal}</span>
+              <span style={{ color: "var(--text-tertiary)", fontSize: "1rem", fontFamily: "var(--font-mono)" }}>/100</span>
+            </div>
           </div>
-          <div className="metric-sub">
-            Derived from {riskScore.findings.length} evidence-backed observation(s)
+          <div>
+            {/* Segmented Risk Meter Bar */}
+            <div className="risk-meter-bar" title={`Score: ${scoreVal}/100 (${riskScore.label})`}>
+              <div className={`risk-meter-segment ${scoreVal >= 0 ? activeBand : ""}`} />
+              <div className={`risk-meter-segment ${scoreVal > 25 ? activeBand : ""}`} />
+              <div className={`risk-meter-segment ${scoreVal > 60 ? activeBand : ""}`} />
+              <div className={`risk-meter-segment ${scoreVal > 80 ? activeBand : ""}`} />
+            </div>
+            <div className="metric-context">
+              Aggregated from {riskScore.findings.length} evidence finding(s)
+            </div>
           </div>
         </div>
 
-        <div className="metric-card">
-          <div className="metric-label">Changed Files</div>
-          <div className="metric-value-row">
-            <span className="metric-value">{totalFilesChanged}</span>
+        {/* Files Panel */}
+        <div className="metric-panel">
+          <div>
+            <div className="metric-header">
+              <span>Changed Surface</span>
+              <IconFileCode size={14} />
+            </div>
+            <div className="metric-num-wrap">
+              <span className="metric-large-num">{totalFilesChanged}</span>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-tertiary)" }}>files</span>
+            </div>
           </div>
-          <div className="metric-sub">
-            In Git diff across selected refs
+          <div className="metric-context">
+            Included in base...head Git diff
           </div>
         </div>
 
-        <div className="metric-card">
-          <div className="metric-label">Downstream Impact</div>
-          <div className="metric-value-row">
-            <span className="metric-value">{impact.length}</span>
-            <span style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>edge(s)</span>
+        {/* Impact Reach Panel */}
+        <div className="metric-panel">
+          <div>
+            <div className="metric-header">
+              <span>Blast Radius</span>
+              <IconRoute size={14} />
+            </div>
+            <div className="metric-num-wrap">
+              <span className="metric-large-num">{impact.length}</span>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-tertiary)" }}>edges</span>
+            </div>
           </div>
-          <div className="metric-sub">
+          <div className="metric-context">
             Direct &amp; transitive consumer modules
           </div>
         </div>
 
-        <div className="metric-card">
-          <div className="metric-label">Recommended Tests</div>
-          <div className="metric-value-row">
-            <span className="metric-value">{testsRecommended}</span>
-            <span style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>candidate suite(s)</span>
+        {/* Test Candidates Panel */}
+        <div className="metric-panel">
+          <div>
+            <div className="metric-header">
+              <span>Targeted Tests</span>
+              <IconShield size={14} />
+            </div>
+            <div className="metric-num-wrap">
+              <span className="metric-large-num">{testsRecommended}</span>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-tertiary)" }}>suites</span>
+            </div>
           </div>
-          <div className="metric-sub">
-            Targeted verification candidates
+          <div className="metric-context">
+            Candidate suites to run for review
           </div>
         </div>
       </div>
 
-      {/* Explanatory Risk Findings */}
-      <div className="findings-container">
-        <div className="findings-columns">
-          {/* Column 1: Verified Facts */}
-          <div>
-            <div className="column-header">
-              <div className="column-title">
-                <span className="badge badge-verified">Verified</span>
-                <span>Deterministic Facts</span>
-              </div>
-              <span className="badge-pill">{verifiedFindings.length} observation(s)</span>
+      {/* Dual Column Findings: Verified vs Inferred */}
+      <div className="findings-dual-grid">
+        {/* Column 1: Deterministic Verified Facts */}
+        <div className="column-box">
+          <div className="column-box-header">
+            <div className="column-box-title">
+              <span className="badge badge-verified">Verified</span>
+              <span>Deterministic AST &amp; Git Facts</span>
             </div>
-
-            {verifiedFindings.length === 0 ? (
-              <div style={{ color: "var(--text-muted)", fontSize: "0.85rem", padding: "1rem 0" }}>
-                No critical verified risk triggers (e.g. deleted files, config modifications, or broken export signatures).
-              </div>
-            ) : (
-              verifiedFindings.map((finding) => (
-                <div key={finding.id} className="finding-card">
-                  <div className="finding-header">
-                    <span className="finding-name">{finding.id}</span>
-                    <span className={`badge badge-${finding.severity}`}>{finding.severity}</span>
-                  </div>
-                  <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: "0.4rem" }}>
-                    Confidence: 100% (Deterministic) &bull; Score Weight: +{Math.round(finding.contribution * 100)}%
-                  </div>
-                  <ul className="evidence-list">
-                    {finding.evidence.map((ev, idx) => (
-                      <li key={idx} className="evidence-item verified">
-                        <div>{ev.description}</div>
-                        <div className="evidence-meta">
-                          <span>source: {ev.source}</span>
-                          <span>&bull;</span>
-                          <span>file: {ev.file}</span>
-                          {ev.lineStart && <span>(L{ev.lineStart}{ev.lineEnd ? `-${ev.lineEnd}` : ""})</span>}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))
-            )}
+            <span style={{ fontSize: "0.75rem", fontFamily: "var(--font-mono)", color: "var(--text-tertiary)" }}>
+              {verifiedFindings.length} observation(s)
+            </span>
           </div>
 
-          {/* Column 2: Inferred Risks */}
-          <div>
-            <div className="column-header">
-              <div className="column-title">
-                <span className="badge badge-inferred">Inferred</span>
-                <span>Heuristic Risks (Capped at 40%)</span>
-              </div>
-              <span className="badge-pill">{inferredFindings.length} observation(s)</span>
+          {verifiedFindings.length === 0 ? (
+            <div style={{ color: "var(--text-tertiary)", fontSize: "0.82rem", padding: "1.5rem 0", textAlign: "center" }}>
+              <IconCheckCircle size={18} style={{ color: "var(--signal-low)", marginBottom: "0.5rem" }} />
+              <div>No deterministic high-risk events observed (no export signature removals, config disruptions, or deletions).</div>
             </div>
-
-            {inferredFindings.length === 0 ? (
-              <div style={{ color: "var(--text-muted)", fontSize: "0.85rem", padding: "1rem 0" }}>
-                No significant downstream blast radius or heuristic risk factors flagged.
-              </div>
-            ) : (
-              inferredFindings.map((finding) => (
-                <div key={finding.id} className="finding-card">
-                  <div className="finding-header">
-                    <span className="finding-name">{finding.id}</span>
-                    <span className={`badge badge-${finding.severity}`}>{finding.severity}</span>
-                  </div>
-                  <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: "0.4rem" }}>
-                    Confidence: {Math.round(finding.confidence * 100)}% &bull; Score Weight: +{Math.round(finding.contribution * 100)}%
-                  </div>
-                  <ul className="evidence-list">
-                    {finding.evidence.map((ev, idx) => (
-                      <li key={idx} className="evidence-item inferred">
-                        <div>{ev.description}</div>
-                        <div className="evidence-meta">
-                          <span>source: {ev.source}</span>
-                          <span>&bull;</span>
-                          <span>file: {ev.file}</span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+          ) : (
+            verifiedFindings.map((finding) => (
+              <div key={finding.id} className="finding-tile">
+                <div className="finding-tile-header">
+                  <span className="finding-tile-title">{finding.id}</span>
+                  <span className={`badge ${finding.severity === "high" ? "badge-high" : finding.severity === "medium" ? "badge-med" : "badge-low"}`}>
+                    {finding.severity}
+                  </span>
                 </div>
-              ))
-            )}
+                <div className="finding-tile-meta">
+                  Confidence: 100% (Deterministic) &bull; Score Contribution: +{Math.round(finding.contribution * 100)}%
+                </div>
+                <div className="evidence-items-list">
+                  {finding.evidence.map((ev, idx) => (
+                    <div key={idx} className="evidence-block verified">
+                      <div>{ev.description}</div>
+                      <div className="evidence-block-meta">
+                        <span>source: {ev.source}</span>
+                        <span>&bull;</span>
+                        <code style={{ color: "var(--text-primary)" }}>{ev.file}</code>
+                        {ev.lineStart && <span>(L{ev.lineStart}{ev.lineEnd ? `-${ev.lineEnd}` : ""})</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Column 2: Inferred Downstream Risks */}
+        <div className="column-box">
+          <div className="column-box-header">
+            <div className="column-box-title">
+              <span className="badge badge-inferred">Inferred</span>
+              <span>Heuristic Downstream Risks</span>
+            </div>
+            <span style={{ fontSize: "0.75rem", fontFamily: "var(--font-mono)", color: "var(--text-tertiary)" }}>
+              Capped at 40% weight
+            </span>
           </div>
+
+          {inferredFindings.length === 0 ? (
+            <div style={{ color: "var(--text-tertiary)", fontSize: "0.82rem", padding: "1.5rem 0", textAlign: "center" }}>
+              <IconInfo size={18} style={{ color: "var(--text-tertiary)", marginBottom: "0.5rem" }} />
+              <div>No significant heuristic downstream risks or broad blast radius detected.</div>
+            </div>
+          ) : (
+            inferredFindings.map((finding) => (
+              <div key={finding.id} className="finding-tile">
+                <div className="finding-tile-header">
+                  <span className="finding-tile-title">{finding.id}</span>
+                  <span className={`badge ${finding.severity === "high" ? "badge-high" : finding.severity === "medium" ? "badge-med" : "badge-low"}`}>
+                    {finding.severity}
+                  </span>
+                </div>
+                <div className="finding-tile-meta">
+                  Confidence: {Math.round(finding.confidence * 100)}% &bull; Score Contribution: +{Math.round(finding.contribution * 100)}%
+                </div>
+                <div className="evidence-items-list">
+                  {finding.evidence.map((ev, idx) => (
+                    <div key={idx} className="evidence-block inferred">
+                      <div>{ev.description}</div>
+                      <div className="evidence-block-meta">
+                        <span>source: {ev.source}</span>
+                        <span>&bull;</span>
+                        <code style={{ color: "var(--text-primary)" }}>{ev.file}</code>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
