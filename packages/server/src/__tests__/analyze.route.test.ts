@@ -90,6 +90,17 @@ describe("GET /health", () => {
   });
 });
 
+describe("GET /api/demo-fixture", () => {
+  it("provisions and returns the demo fixture repository coordinates", async () => {
+    const res = await fetch(`${baseUrl}/api/demo-fixture`);
+    assert.equal(res.status, 200);
+    const data = (await res.json()) as any;
+    assert.ok(data.repoPath, "should return a valid repoPath");
+    assert.equal(data.baseRef, "HEAD~1");
+    assert.equal(data.headRef, "HEAD");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // POST /api/analyze — happy path
 // ---------------------------------------------------------------------------
@@ -283,6 +294,7 @@ describe("POST /api/analyze — error cases", () => {
     });
     assert.equal(status, 422);
     assert.equal((data as any).error.code, "GIT_ERROR");
+    assert.match((data as any).error.message, /Git ref "nonexistent-ref" does not exist in this repository/i);
   });
 
   it("returns 422 for empty diff (same refs)", async () => {

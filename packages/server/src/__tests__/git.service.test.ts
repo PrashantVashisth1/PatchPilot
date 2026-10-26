@@ -204,6 +204,7 @@ describe("runGitDiff errors", () => {
       (err: Error & { statusCode?: number }) => {
         assert.equal(err.statusCode, 422);
         assert.equal((err as any).code, "GIT_ERROR");
+        assert.match(err.message, /Git ref "nonexistent-branch" does not exist in this repository/i);
         return true;
       },
       "should reject invalid refs",

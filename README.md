@@ -107,7 +107,7 @@ npm install
 # Typecheck all workspaces (shared, server, client)
 npm run typecheck
 
-# Run server automated test suite (87 tests across 21 suites)
+# Run server automated test suite (88 tests across 22 suites)
 npm run test -w packages/server
 
 # Build all packages for production
@@ -124,7 +124,43 @@ npm run server
 npm run client
 ```
 
-Open `http://localhost:5173` in your browser. Enter your local repository path, select comparison refs (e.g. `main` and `HEAD`), and click **Analyze Diff**.
+Open `http://localhost:5173` in your browser.
+
+#### Instant 1-Click Demo
+Click the **"Load Fixture"** button in the top command bar or hero banner. PatchPilot will automatically provision a dedicated Git repository fixture with:
+- An altered export function signature (`calculateDiscount` in `src/utils/pricing.ts`).
+- An Express route addition (`GET /orders/:id` in `src/routes/orderRoute.ts`).
+- Downstream consumer propagation (`src/services/order.ts`).
+- Ranked test discovery matching `tests/order.test.ts`.
+
+---
+
+## 📸 Product Interface & Visual Architecture
+
+PatchPilot features a dark-mode engineering workspace with high-contrast typography, interactive status pills, and segmented risk meters:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│  PATCHPILOT  [Local Engine: Active]                  [Load Demo Fixture] [Analyze]│
+├──────────────────────────────────────────────────────────────────────────────────┤
+│  Repository: %TEMP%/patchpilot-fixture-demo    Base: HEAD~1    Head: HEAD        │
+├──────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│  [35 / 100 MEDIUM RISK]    2 Files Changed    3 Impact Edges    2 Tests Rec.    │
+│  ══════════════════════════════════════════════════════════════════════════════  │
+│                                                                                  │
+│  [Overview]  [Changed Files (2)]  [Downstream Impact (3)]  [Test Suites (2)]     │
+│                                                                                  │
+│  ┌─ VERIFIED FACTS (100% Confidence) ─────────┐ ┌─ INFERRED RISKS (Heuristics) ─┐│
+│  │ • Export "calculateDiscount" signature     │ │ • Route definition added      ││
+│  │   changed in src/utils/pricing.ts          │ │   GET /orders/:id             ││
+│  │ • 2 files modified: +5 / -2 lines          │ │ • Downstream blast radius:    ││
+│  │                                            │ │   src/services/order.ts       ││
+│  └────────────────────────────────────────────┘ └───────────────────────────────┘│
+└──────────────────────────────────────────────────────────────────────────────────┘
+```
+
+> **UI Screenshots:** Screenshots for hackathon submission galleries can be captured directly from `http://localhost:5173` upon running the 1-click fixture demonstration.
 
 ---
 
@@ -136,7 +172,7 @@ Open `http://localhost:5173` in your browser. Enter your local repository path, 
 ```json
 {
   "repoPath": "C:\\projects\\my-app",
-  "baseRef": "main",
+  "baseRef": "HEAD~1",
   "headRef": "HEAD",
   "maxFiles": 500,
   "maxGraphFiles": 5000,
@@ -166,7 +202,7 @@ Open `http://localhost:5173` in your browser. Enter your local repository path, 
       "target": "src/utils/pricing.ts",
       "depth": 1,
       "relationship": "direct",
-      "path": ["src/services/order.ts", "src/utils/pricing.ts"]
+      "path": ["src/utils/pricing.ts", "src/services/order.ts"]
     }
   ],
   "impactDetails": [...],
@@ -184,6 +220,16 @@ Open `http://localhost:5173` in your browser. Enter your local repository path, 
 }
 ```
 
+### `GET /api/demo-fixture`
+Provisions or returns coordinates for the isolated multi-commit demo repository:
+```json
+{
+  "repoPath": "C:\\Users\\...\\AppData\\Local\\Temp\\patchpilot-fixture-demo",
+  "baseRef": "HEAD~1",
+  "headRef": "HEAD"
+}
+```
+
 ### `GET /health`
 Returns `{"status": "ok", "uptime": <seconds>}`.
 
@@ -193,7 +239,7 @@ Returns `{"status": "ok", "uptime": <seconds>}`.
 
 The test suite validates:
 - Real Git repository diffs, additions, deletions, renames, and shorthand refs (`HEAD~1..HEAD`).
-- Error conditions: non-absolute paths, non-git directories, invalid refs, empty diffs.
+- Error conditions: non-absolute paths, non-git directories, invalid refs (with actionable revision guidance), empty diffs.
 - TypeScript AST parsing: named exports, default exports, type-only exports, relative imports, and Express/React Router routes.
 - Base/head export signature comparison and whitespace normalization.
 - Repository-wide reverse dependency DAGs, cycle termination, depth boundaries, and deduplication.
@@ -201,7 +247,7 @@ The test suite validates:
 
 ```bash
 npm run test -w packages/server
-# 87 tests passing across 21 suites (100% clean)
+# 88 tests passing across 22 suites (100% clean)
 ```
 
 ---

@@ -6,6 +6,7 @@
 
 import express, { type Request, type Response, type NextFunction } from "express";
 import analyzeRouter from "./routes/analyze.js";
+import { ensureDemoFixture } from "./services/demo-fixture.js";
 import { AppError } from "./utils/errors.js";
 import type { ErrorResponse } from "@patchpilot/shared";
 
@@ -23,6 +24,11 @@ app.use(express.json({ limit: "1mb" }));
 
 app.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "ok", uptime: process.uptime() });
+});
+
+app.get("/api/demo-fixture", (_req: Request, res: Response) => {
+  const fixture = ensureDemoFixture();
+  res.json(fixture);
 });
 
 app.use("/api/analyze", analyzeRouter);

@@ -15,7 +15,7 @@ import {
 
 export default function App() {
   const [repoPath, setRepoPath] = useState("");
-  const [baseRef, setBaseRef] = useState("main");
+  const [baseRef, setBaseRef] = useState("HEAD~1");
   const [headRef, setHeadRef] = useState("HEAD");
   const { report, loading, error, run, reset } = useAnalysis();
 
@@ -23,9 +23,21 @@ export default function App() {
     run({ repoPath, baseRef, headRef });
   };
 
-  const loadSampleFixture = () => {
+  const loadSampleFixture = async () => {
+    try {
+      const res = await fetch("/api/demo-fixture");
+      if (res.ok) {
+        const data = (await res.json()) as { repoPath: string; baseRef: string; headRef: string };
+        setRepoPath(data.repoPath);
+        setBaseRef(data.baseRef);
+        setHeadRef(data.headRef);
+        return;
+      }
+    } catch {
+      // fallback
+    }
     setRepoPath("C:\\Users\\prash\\AppData\\Local\\Temp\\patchpilot-fixture-demo");
-    setBaseRef("main~1");
+    setBaseRef("HEAD~1");
     setHeadRef("HEAD");
   };
 
@@ -163,7 +175,7 @@ export default function App() {
                       </button>
                     </div>
                     <div className="sample-path-preview">
-                      patchpilot-fixture-demo &bull; main~1 &rarr; HEAD
+                      patchpilot-fixture-demo &bull; HEAD~1 &rarr; HEAD
                     </div>
                   </div>
                 </div>

@@ -328,15 +328,28 @@ function runGit(cwd: string, args: string[]): Promise<string> {
         resolve(stdout.trim());
       } else {
         const reason = signal ? `killed by signal ${signal}` : `exit code ${code}`;
+        const cleanErr = sanitizeStderr(stderr);
+        let message = `Git command failed: ${reason}`;
+        if (/ambiguous argument '([^']+)': unknown revision/i.test(cleanErr)) {
+          const badRef = cleanErr.match(/ambiguous argument '([^']+)': unknown revision/i)?.[1];
+          message = `Git ref "${badRef}" does not exist in this repository. Verify that the branch or commit exists (e.g. "main" vs "master").`;
+        } else if (/Not a valid object name ([^\s]+)/i.test(cleanErr)) {
+          const badRef = cleanErr.match(/Not a valid object name ([^\s]+)/i)?.[1];
+          message = `Invalid Git object or reference: "${badRef}".`;
+        } else if (/bad revision '([^']+)'/i.test(cleanErr)) {
+          const badRef = cleanErr.match(/bad revision '([^']+)'/i)?.[1];
+          message = `Invalid Git revision: "${badRef}".`;
+        }
+
         reject(
           unprocessable(
-            `Git command failed: ${reason}`,
+            message,
             "GIT_ERROR",
             {
               args: ["git", ...args],
               exitCode: code,
               signal,
-              stderr: sanitizeStderr(stderr),
+              stderr: cleanErr,
             },
           ),
         );
