@@ -34,6 +34,7 @@ const INFERRED_WEIGHTS: Record<string, number> = {
   "route-file-changed": 0.15,
   "core-module-changed": 0.10,
   "broad-import-tree": 0.08,
+  "downstream-impact": 0.08,
   "no-readme": 0.02,
 };
 
@@ -201,6 +202,12 @@ export const FINDING_BROAD_IMPORT_TREE: FindingTemplate = {
   id: "broad-import-tree",
   severity: "low",
   weightKey: "broad-import-tree",
+};
+
+export const FINDING_DOWNSTREAM_IMPACT: FindingTemplate = {
+  id: "downstream-impact",
+  severity: "medium",
+  weightKey: "downstream-impact",
 };
 
 // ---------------------------------------------------------------------------

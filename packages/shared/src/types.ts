@@ -53,6 +53,24 @@ export interface ImportInfo {
   resolvedPath?: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Impact analysis (Step 4)
+// ---------------------------------------------------------------------------
+
+/** Relationship between a changed file and an impacted consumer. */
+export interface ImpactEdge {
+  /** The consumer file (depends on the changed file). */
+  consumer: string;
+  /** The changed file the consumer depends on. */
+  target: string;
+  /** Dependency depth: 1 = direct, 2+ = transitive (number of edges). */
+  depth: number;
+  /** Whether this is a direct or transitive dependency. */
+  relationship: "direct" | "transitive";
+  /** Path through which the consumer reaches the target (repo-relative). */
+  path: string[];
+}
+
 /**
  * A detected route definition.
  * `method` is the HTTP verb for Express ("GET", "POST", ...) and "ROUTE"
@@ -163,12 +181,42 @@ export interface DepEdge {
 // ---------------------------------------------------------------------------
 
 export interface TestRecommendation {
+  /** The changed file this recommendation covers. */
   changedFile: string;
+  /** Discovered test file paths that are candidates to run (repo-relative). */
   recommendedTests: string[];
-  /** Why each test is recommended. */
+  /** Why these tests are recommended (human-readable summary). */
   reason: string;
   /** Steps a reviewer should take to manually verify. */
   verificationSteps: string[];
+  /** Overall confidence in the recommendation (0-1). 1 = high-confidence name match. */
+  confidence?: number;
+  /** Per-test match evidence with specific reasons. */
+  matches?: TestMatch[];
+}
+
+/** A single discovered test matched to a changed file. */
+export interface TestMatch {
+  /** The test file path (repo-relative). */
+  testFile: string;
+  /** Confidence for this specific test match (0-1). */
+  confidence: number;
+  /** How the test was matched to the changed file. */
+  reasons: TestMatchReason[];
+}
+
+export interface TestMatchReason {
+  /** How the match was identified. */
+  kind:
+    | "name-match"
+    | "import-match"
+    | "transitive-import"
+    | "directory-proximity"
+    | "module-prefix";
+  /** The changed file this reason references. */
+  file: string;
+  /** Evidence detail. */
+  detail: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -186,6 +234,8 @@ export interface AnalysisError {
     | "IO_ERROR"
     | "UNRESOLVED_IMPORT"
     | "FILE_TOO_LARGE"
+    | "GRAPH_TRUNCATED"
+    | "SCAN_INCOMPLETE"
     | "UNKNOWN";
 }
 
@@ -213,8 +263,29 @@ export interface AnalyzeResponse {
   };
   files: FileAnalysis[];
   dependencyGraph: DepEdge[];
+  /** Repository-wide impact edges: consumers of changed files. */
+  impact: ImpactEdge[];
+  /** Per-file reverse-dependency details (depth + evidence). */
+  impactDetails: ImpactDetail[];
+  /** Whether the repository-wide scan was complete or truncated. */
+  scanComplete: boolean;
+  /** Human-readable note when the scan was partial. */
+  scanNote?: string;
   recommendations: TestRecommendation[];
   errors: AnalysisError[];
+}
+
+/** Reverse-dependency summary for one changed file. */
+export interface ImpactDetail {
+  file: string;
+  /** Direct (depth 1) consumers. */
+  directConsumers: string[];
+  /** Transitive consumers (depth 2+), deduplicated. */
+  transitiveConsumers: string[];
+  /** Total number of distinct transitive consumers (may exceed list if capped). */
+  transitiveCount: number;
+  /** Whether the transitive list was capped by a limit. */
+  truncated: boolean;
 }
 
 // ---------------------------------------------------------------------------

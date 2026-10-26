@@ -12,6 +12,7 @@ import {
 } from "../services/git.service.js";
 import { analyze } from "../engine/analyzer.js";
 import { fetchSources } from "../engine/source-reader.js";
+import { buildRepoGraph } from "../engine/graph.js";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -22,6 +23,9 @@ const analyzeSchema = z.object({
   baseRef: z.string().min(1, "baseRef is required"),
   headRef: z.string().optional().default("HEAD"),
   maxFiles: z.number().int().positive().max(1000).optional().default(500),
+  maxGraphFiles: z.number().int().positive().max(20000).optional().default(5000),
+  maxTransitiveDepth: z.number().int().min(1).max(20).optional().default(5),
+  maxConsumersPerTarget: z.number().int().min(1).max(10000).optional().default(200),
 });
 
 // ---------------------------------------------------------------------------
@@ -37,7 +41,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       throw badRequest("Invalid request body", parsed.error.flatten());
     }
 
-    const { repoPath, baseRef, headRef, maxFiles } = parsed.data;
+    const { repoPath, baseRef, headRef, maxFiles, maxGraphFiles, maxTransitiveDepth, maxConsumersPerTarget } = parsed.data;
 
     // 1. Git diff — this validates the repo, refs, and fetches changed files.
     const diff = await runGitDiff({ repoPath, baseRef, headRef });
@@ -63,8 +67,36 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       head: await safeTree(repoPath, headRef),
     };
 
-    // 6. Run the analysis engine.
-    const response = analyze({ diff: capped, numstat, sources, trees });
+    // 6. Repository-wide import graph at head (and base when needed for
+    //    removed/renamed files). These drive reverse-dependency impact and
+    //    test discovery. Best-effort: a failed/partial graph degrades impact
+    //    analysis but never fails the request.
+    const graph = trees.head
+      ? await buildRepoGraph(repoPath, headRef, trees.head, { maxFiles: maxGraphFiles })
+      : undefined;
+
+    const needsBaseGraph = capped.files.some(
+      (f) => f.status === "deleted" || f.status === "renamed",
+    );
+    const baseGraph =
+      needsBaseGraph && trees.base
+        ? await buildRepoGraph(repoPath, baseRef, trees.base, { maxFiles: maxGraphFiles })
+        : undefined;
+
+    const repoFiles = trees.head ? [...trees.head] : undefined;
+
+    // 7. Run the analysis engine.
+    const response = analyze({
+      diff: capped,
+      numstat,
+      sources,
+      trees,
+      graph,
+      baseGraph,
+      repoFiles,
+      maxTransitiveDepth,
+      maxConsumersPerTarget,
+    });
 
     res.json(response);
   } catch (err) {

@@ -10,7 +10,7 @@
 // AI-generated recommendations.
 // ---------------------------------------------------------------------------
 
-import { basename, extname } from "node:path";
+import { basename } from "node:path";
 import type {
   FileAnalysis,
   Finding,
@@ -21,6 +21,9 @@ import type {
   ImportInfo,
   Evidence,
   RouteInfo,
+  ImpactEdge,
+  ImpactDetail,
+  TestRecommendation,
 } from "@patchpilot/shared";
 import {
   makeFinding,
@@ -30,14 +33,22 @@ import {
   FINDING_PACKAGE_CONFIG_CHANGED,
   FINDING_EXPORT_SIGNATURE_CHANGED,
   FINDING_ROUTE_FILE_CHANGED,
+  FINDING_DOWNSTREAM_IMPACT,
   LARGE_DIFF_THRESHOLD,
   computeRiskScore,
 } from "@patchpilot/shared";
-import type { GitDiffStats } from "../services/git.service.js";
+import type { GitDiffStats, GitDiffFile } from "../services/git.service.js";
 import type { FileSource } from "./source-reader.js";
 import { isJsTsFile } from "./file-kinds.js";
 import { parseSource, type AstFacts } from "./ast-parser.js";
 import { resolveImport } from "./resolve.js";
+import {
+  computeImpactEdges,
+  transitiveReach,
+  type RepoGraph,
+  type RepoImportEdge,
+} from "./graph.js";
+import { discoverTestRecommendations } from "./test-discovery.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -79,6 +90,15 @@ const CONFIG_BASENAMES = new Set([
 /** Maximum evidence entries cited in a single finding. */
 const MAX_FINDING_EVIDENCE = 5;
 
+/** Default transitive dependency depth for impact analysis. */
+const DEFAULT_MAX_DEPTH = 5;
+
+/** Default max consumers reported per changed target. */
+const DEFAULT_MAX_CONSUMERS = 200;
+
+/** Direct consumers above this threshold trigger a high-fan-in risk signal. */
+export const HIGH_FAN_IN_THRESHOLD = 5;
+
 // ---------------------------------------------------------------------------
 // Input contract
 // ---------------------------------------------------------------------------
@@ -91,6 +111,16 @@ export interface AnalyzeInput {
   sources?: Map<string, FileSource>;
   /** Paths present at each ref, used as the import-resolution oracle. */
   trees?: { base?: Set<string>; head?: Set<string> };
+  /** Repository-wide import graph at head (optional; enables impact analysis). */
+  graph?: RepoGraph;
+  /** Repository-wide import graph at base (optional; enables removed-file impact). */
+  baseGraph?: RepoGraph;
+  /** Full repo file listing at head (optional; enables test discovery). */
+  repoFiles?: string[];
+  /** Maximum transitive depth for reverse-dependency analysis. */
+  maxTransitiveDepth?: number;
+  /** Maximum consumers reported per changed file. */
+  maxConsumersPerTarget?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,14 +129,26 @@ export interface AnalyzeInput {
 
 export function analyze(input: AnalyzeInput): AnalyzeResponse {
   const { diff, numstat, sources, trees } = input;
+  const maxDepth = input.maxTransitiveDepth ?? DEFAULT_MAX_DEPTH;
+  const maxConsumers = input.maxConsumersPerTarget ?? DEFAULT_MAX_CONSUMERS;
+
   const files: FileAnalysis[] = [];
   const globalFindings: Finding[] = [];
   const errors: AnalysisError[] = [];
   const dependencyGraph: DepEdge[] = [];
 
+  // ---- Step 4: repository-wide impact (reverse dependencies) ----
+  const { impact, truncatedTargets } = buildImpact(
+    input.graph,
+    input.baseGraph,
+    diff.files,
+    maxDepth,
+    maxConsumers,
+  );
+  const directByFile = directConsumersByFile(impact);
+
   for (const gf of diff.files) {
     const fileFindings: Finding[] = [];
-    const ext = extname(gf.path).toLowerCase();
     const fileName = basename(gf.path);
     const isJS_TS = isJsTsFile(gf.path);
     const isConfig = CONFIG_BASENAMES.has(fileName) ||
@@ -170,6 +212,8 @@ export function analyze(input: AnalyzeInput): AnalyzeResponse {
     let imports: ImportInfo[] = [];
     let routes: RouteInfo[] = [];
     let dependsOn: string[] = [];
+    let removedExports: string[] = [];
+    let changedExports: string[] = [];
 
     if (isJS_TS) {
       const ast = analyzeSource(gf, sources?.get(gf.path), trees, errors);
@@ -177,8 +221,20 @@ export function analyze(input: AnalyzeInput): AnalyzeResponse {
       imports = ast.imports;
       routes = ast.routes;
       dependsOn = ast.dependsOn;
+      removedExports = ast.removedExports;
+      changedExports = ast.changedExports;
       dependencyGraph.push(...ast.edges);
       fileFindings.push(...ast.findings);
+    }
+
+    // ---- Step 4: reverse dependencies for this changed file ----
+    const dependedOnBy = consumersOf(gf, directByFile);
+
+    // ---- Step 4: downstream-impact finding (inferred risk) ----
+    if (dependedOnBy.length > 0 && (removedExports.length > 0 || changedExports.length > 0)) {
+      fileFindings.push(
+        downstreamImpactFinding(gf.path, dependedOnBy, removedExports, changedExports),
+      );
     }
 
     files.push({
@@ -189,8 +245,8 @@ export function analyze(input: AnalyzeInput): AnalyzeResponse {
       imports,
       routes,
       dependsOn,
-      dependedOnBy: [], // Reverse deps need a full-repo scan — later step.
-      testFiles: [],
+      dependedOnBy,
+      testFiles: [], // populated during test discovery below
       findings: fileFindings,
       additions: lineStats?.additions,
       deletions: lineStats?.deletions,
@@ -213,6 +269,25 @@ export function analyze(input: AnalyzeInput): AnalyzeResponse {
     );
   }
 
+  // ---- Step 4: test discovery ----
+  const recommendations = discoverTests(input, files);
+
+  // ---- Step 4: attach discovered test files to each changed file ----
+  const testByChanged = indexRecommendedTests(recommendations);
+  for (const file of files) {
+    file.testFiles = testByChanged.get(file.path) ?? [];
+  }
+
+  // ---- Step 4: report partial scans explicitly ----
+  const graphTruncated = input.graph?.truncated || input.baseGraph?.truncated;
+  if (graphTruncated) {
+    errors.push({
+      file: "<graph>",
+      message: `Impact analysis is partial: ${input.graph?.truncationReason ?? input.baseGraph?.truncationReason ?? "graph scan truncated"}`,
+      code: "GRAPH_TRUNCATED",
+    });
+  }
+
   const riskScore = computeRiskScore(globalFindings);
 
   return {
@@ -220,13 +295,208 @@ export function analyze(input: AnalyzeInput): AnalyzeResponse {
       totalFilesChanged: diff.files.length,
       errorCount: errors.length,
       riskScore,
-      testsRecommended: 0,
+      testsRecommended: recommendations.length,
     },
     files,
     dependencyGraph,
-    recommendations: [],
+    impact,
+    impactDetails: buildImpactDetails(diff.files, impact, truncatedTargets),
+    scanComplete: !graphTruncated,
+    scanNote: graphTruncated
+      ? (input.graph?.truncationReason ?? input.baseGraph?.truncationReason)
+      : undefined,
+    recommendations,
     errors,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Step 4 helpers
+// ---------------------------------------------------------------------------
+
+interface ImpactResult {
+  impact: ImpactEdge[];
+  truncatedTargets: Set<string>;
+}
+
+function buildImpact(
+  graph: RepoGraph | undefined,
+  baseGraph: RepoGraph | undefined,
+  diffFiles: GitDiffFile[],
+  maxDepth: number,
+  maxConsumers: number,
+): ImpactResult {
+  if (!graph && !baseGraph) {
+    return { impact: [], truncatedTargets: new Set() };
+  }
+
+  const headReverse = graph?.reverse ?? new Map<string, RepoImportEdge[]>();
+  const baseReverse = baseGraph?.reverse ?? new Map<string, RepoImportEdge[]>();
+
+  // Files that exist at head: added, modified, renamed (new path).
+  const headTargets = diffFiles
+    .filter((f) => f.status !== "deleted")
+    .map((f) => f.path);
+  // Files that exist at base: deleted (path), renamed (old path).
+  const baseTargets = diffFiles
+    .filter((f) => f.status === "deleted" || f.status === "renamed")
+    .map((f) => (f.status === "renamed" && f.oldPath ? f.oldPath : f.path));
+
+  const head = computeImpactEdges(headReverse, headTargets, maxDepth, maxConsumers);
+  const base = computeImpactEdges(baseReverse, baseTargets, maxDepth, maxConsumers);
+
+  const seen = new Set<string>();
+  const merged: ImpactEdge[] = [];
+  const truncatedTargets = new Set<string>();
+  for (const e of [...head.edges, ...base.edges]) {
+    const key = `${e.target}|${e.consumer}|${e.depth}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(e);
+  }
+  for (const t of head.truncatedTargets) truncatedTargets.add(t);
+  for (const t of base.truncatedTargets) truncatedTargets.add(t);
+
+  return { impact: merged, truncatedTargets };
+}
+
+function directConsumersByFile(impact: ImpactEdge[]): Map<string, string[]> {
+  const map = new Map<string, Set<string>>();
+  for (const e of impact) {
+    if (e.depth !== 1) continue;
+    let s = map.get(e.target);
+    if (!s) {
+      s = new Set();
+      map.set(e.target, s);
+    }
+    s.add(e.consumer);
+  }
+  return new Map([...map.entries()].map(([k, v]) => [k, [...v].sort()]));
+}
+
+function consumersOf(
+  gf: GitDiffFile,
+  directByFile: Map<string, string[]>,
+): string[] {
+  const set = new Set<string>();
+  for (const c of directByFile.get(gf.path) ?? []) set.add(c);
+  if (gf.oldPath) {
+    for (const c of directByFile.get(gf.oldPath) ?? []) set.add(c);
+  }
+  return [...set].sort();
+}
+
+function buildImpactDetails(
+  diffFiles: GitDiffFile[],
+  impact: ImpactEdge[],
+  truncatedTargets: Set<string>,
+): ImpactDetail[] {
+  return diffFiles.map((gf) => {
+    const ownTargets = new Set<string>([gf.path]);
+    if (gf.oldPath) ownTargets.add(gf.oldPath);
+
+    const direct = new Set<string>();
+    const transitive = new Set<string>();
+    for (const e of impact) {
+      if (!ownTargets.has(e.target)) continue;
+      if (e.depth === 1) direct.add(e.consumer);
+      else transitive.add(e.consumer);
+    }
+
+    const directList = [...direct].sort();
+    const transitiveList = [...transitive].sort();
+    const truncated = [...ownTargets].some((t) => truncatedTargets.has(t));
+
+    return {
+      file: gf.path,
+      directConsumers: directList,
+      transitiveConsumers: transitiveList,
+      transitiveCount: transitiveList.length,
+      truncated,
+    };
+  });
+}
+
+function downstreamImpactFinding(
+  filePath: string,
+  consumers: string[],
+  removedExports: string[],
+  changedExports: string[],
+): Finding {
+  const evidence: Evidence[] = [];
+
+  for (const consumer of consumers.slice(0, MAX_FINDING_EVIDENCE)) {
+    evidence.push({
+      source: "ast",
+      classification: "inferred",
+      description:
+        `Consumer "${consumer}" imports this module and may be affected by ` +
+        describeExportDelta(removedExports, changedExports),
+      file: consumer,
+    });
+  }
+
+  if (consumers.length > MAX_FINDING_EVIDENCE) {
+    evidence.push({
+      source: "ast",
+      classification: "inferred",
+      description: `...and ${consumers.length - MAX_FINDING_EVIDENCE} more direct consumers`,
+      file: filePath,
+    });
+  }
+
+  return makeFinding(FINDING_DOWNSTREAM_IMPACT, evidence, 0.6);
+}
+
+function describeExportDelta(removed: string[], changed: string[]): string {
+  const parts: string[] = [];
+  if (removed.length > 0) parts.push(`removed export(s): ${removed.join(", ")}`);
+  if (changed.length > 0) parts.push(`changed export(s): ${changed.join(", ")}`);
+  return parts.join("; ") || "changes to its exports";
+}
+
+function discoverTests(
+  input: AnalyzeInput,
+  files: FileAnalysis[],
+): TestRecommendation[] {
+  const testFiles = (input.repoFiles ?? [...(input.trees?.head ?? [])])
+    .filter((p) => isTestPath(p))
+    .sort();
+  if (testFiles.length === 0) return [];
+
+  const forwardEdges = input.graph?.edges ?? [];
+  const changedFiles = files.map((f) => ({
+    path: f.path,
+    status: f.status,
+    oldPath: f.oldPath,
+  }));
+
+  // Transitive reach for each test file, so tests can be matched to modules
+  // they depend on indirectly ("affected modules").
+  const reachOf = transitiveReach(forwardEdges, testFiles, input.maxTransitiveDepth ?? DEFAULT_MAX_DEPTH);
+
+  return discoverTestRecommendations(testFiles, forwardEdges, changedFiles, reachOf);
+}
+
+function isTestPath(p: string): boolean {
+  if (!isJsTsFile(p)) return false;
+  const base = basename(p);
+  return /\.(test|spec)\.[^.]+$/.test(base) || p.includes("/__tests__/");
+}
+
+function indexRecommendedTests(
+  recommendations: TestRecommendation[],
+): Map<string, string[]> {
+  const map = new Map<string, Set<string>>();
+  for (const r of recommendations) {
+    let s = map.get(r.changedFile);
+    if (!s) {
+      s = new Set();
+      map.set(r.changedFile, s);
+    }
+    for (const t of r.recommendedTests) s.add(t);
+  }
+  return new Map([...map.entries()].map(([k, v]) => [k, [...v].sort()]));
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +510,10 @@ interface AstOutcome {
   dependsOn: string[];
   edges: DepEdge[];
   findings: Finding[];
+  /** Names of base exports absent from head (removals). */
+  removedExports: string[];
+  /** Names of exports whose head signature differs from base. */
+  changedExports: string[];
 }
 
 /**
@@ -260,6 +534,8 @@ function analyzeSource(
     dependsOn: [],
     edges: [],
     findings: [],
+    removedExports: [],
+    changedExports: [],
   };
 
   // No source data (legacy calls without sources, or file skipped).
@@ -342,6 +618,12 @@ function analyzeSource(
       present.exports,
       headResult.facts.exportSignatures,
       baseResult.facts.exportSignatures,
+    );
+    outcome.changedExports = outcome.exports
+      .filter((e) => e.signatureChanged)
+      .map((e) => e.name);
+    outcome.removedExports = [...baseResult.facts.exportSignatures.keys()].filter(
+      (name) => !outcome.exports.some((e) => e.name === name),
     );
     outcome.findings.push(
       ...exportChangeFindings(gf.path, outcome.exports, baseResult.facts),
