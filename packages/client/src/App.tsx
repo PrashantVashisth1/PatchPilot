@@ -17,28 +17,39 @@ export default function App() {
   const [repoPath, setRepoPath] = useState("");
   const [baseRef, setBaseRef] = useState("HEAD~1");
   const [headRef, setHeadRef] = useState("HEAD");
+  const [fixtureError, setFixtureError] = useState<string | null>(null);
   const { report, loading, error, run, reset } = useAnalysis();
 
   const handleSubmit = () => {
+    setFixtureError(null);
     run({ repoPath, baseRef, headRef });
   };
 
   const loadSampleFixture = async () => {
+    setFixtureError(null);
     try {
       const res = await fetch("/api/demo-fixture");
-      if (res.ok) {
-        const data = (await res.json()) as { repoPath: string; baseRef: string; headRef: string };
-        setRepoPath(data.repoPath);
-        setBaseRef(data.baseRef);
-        setHeadRef(data.headRef);
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => null);
+        const msg = (errJson as any)?.error?.message || `Failed to fetch demo fixture (HTTP ${res.status})`;
+        setFixtureError(msg);
         return;
       }
-    } catch {
-      // fallback
+      const data = (await res.json()) as { repoPath?: string; baseRef?: string; headRef?: string };
+      if (!data.repoPath || typeof data.repoPath !== "string") {
+        setFixtureError("Server returned an invalid demo fixture configuration.");
+        return;
+      }
+      setRepoPath(data.repoPath);
+      setBaseRef(data.baseRef || "HEAD~1");
+      setHeadRef(data.headRef || "HEAD");
+    } catch (err: unknown) {
+      setFixtureError(
+        err instanceof Error
+          ? `Could not connect to PatchPilot server: ${err.message}`
+          : "Could not connect to PatchPilot server to load demo fixture.",
+      );
     }
-    setRepoPath("C:\\Users\\prash\\AppData\\Local\\Temp\\patchpilot-fixture-demo");
-    setBaseRef("HEAD~1");
-    setHeadRef("HEAD");
   };
 
   return (
@@ -90,6 +101,34 @@ export default function App() {
           onSubmit={handleSubmit}
           disabled={loading}
         />
+
+        {/* Actionable Fixture Error Banner */}
+        {fixtureError && (
+          <div className="alert-banner alert-banner-error" id="fixture-error-banner">
+            <IconAlertTriangle size={16} style={{ flexShrink: 0, marginTop: "2px" }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <strong>Demo Fixture Error</strong>
+                <button
+                  type="button"
+                  onClick={() => setFixtureError(null)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "inherit",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                  }}
+                  title="Dismiss error"
+                >
+                  <IconX size={14} />
+                </button>
+              </div>
+              <div style={{ marginTop: "0.25rem", color: "var(--text-primary)" }}>{fixtureError}</div>
+            </div>
+          </div>
+        )}
 
         {/* Actionable Error Banner */}
         {error && (

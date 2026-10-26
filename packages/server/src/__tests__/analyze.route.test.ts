@@ -99,6 +99,18 @@ describe("GET /api/demo-fixture", () => {
     assert.equal(data.baseRef, "HEAD~1");
     assert.equal(data.headRef, "HEAD");
   });
+
+  it("returns a valid Git repository capable of being analyzed without error", async () => {
+    const res = await fetch(`${baseUrl}/api/demo-fixture`);
+    const data = (await res.json()) as any;
+    const analyze = await postAnalyze({
+      repoPath: data.repoPath,
+      baseRef: data.baseRef,
+      headRef: data.headRef,
+    });
+    assert.equal(analyze.status, 200);
+    assert.ok((analyze.data as any).files.length >= 2);
+  });
 });
 
 // ---------------------------------------------------------------------------
